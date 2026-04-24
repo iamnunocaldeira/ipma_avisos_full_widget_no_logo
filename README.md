@@ -1,0 +1,1 @@
+# ipma_avisos_full_widget_no_logo
