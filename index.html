@@ -11,7 +11,7 @@ body{display:inline-block;padding:0}
 
 /* ── Map widget ── */
 .map-widget{
-  width:200px;background:#fff;border:1px solid #ccc;border-radius:0 0 4px 4px;
+  width:200px;background:#fff;border:1px solid #ccc;border-radius:0;
   overflow:hidden;display:flex;flex-direction:column;cursor:pointer;text-decoration:none;
   border-top:none;
 }
@@ -103,6 +103,56 @@ body{display:inline-block;padding:0}
   padding:1px 4px 3px;
   border:1px solid #ccc;border-top:none;border-bottom:none;
   background:#fff;
+}
+
+/* ── Avisos em vigor ── */
+.active-warnings{
+  width:200px;
+  background:#fff;
+  border:1px solid #ccc;
+  border-top:none;
+  border-radius:0 0 4px 4px;
+  padding:4px 5px 5px;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.active-warnings-title{
+  font-size:10px;
+  font-weight:700;
+  color:#333;
+  border-bottom:1px solid #eee;
+  padding-bottom:2px;
+  margin-bottom:1px;
+}
+.active-warn-row{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.active-warn-icon{
+  width:16px;height:16px;
+  border-radius:2px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.active-warn-icon svg{
+  width:11px;height:11px;
+  fill:#000;
+}
+.active-warn-text{
+  font-size:6px;
+  color:#333;
+  line-height:1.3;
+}
+.active-warn-region{
+  font-weight:700;
+  font-size:6px;
+}
+.no-active-warn{
+  font-size:9px;
+  color:#888;
+  font-style:italic;
 }
 </style>
 </head>
@@ -242,7 +292,10 @@ body{display:inline-block;padding:0}
 </g>
 </svg>
   </div>
-</a></div>
+</a><div class="active-warnings">
+      <div class="active-warnings-title">Avisos em vigor</div>
+      <div class="no-active-warn">Sem avisos activos neste momento</div>
+    </div></div>
 
 <script>
 /* ──────────────── LOGO (warnings widget) ──────────────── */
@@ -456,6 +509,87 @@ function buildRegionWidget(code, name, warnings){
   </a>`;
 }
 
+
+/* ──────────────── Avisos em vigor agora ──────────────── */
+function pad2(n){return String(n).padStart(2,'0')}
+
+function formatDT(iso){
+  const d=new Date(iso);
+  return pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+' '+pad2(d.getHours())+'H'+pad2(d.getMinutes());
+}
+
+function buildActiveWarnings(data){
+  const now = new Date();
+  // Only care about MCS (Costa Sul), MRM (Regiões Montanhosas)
+  // and Agitação Marítima for MCS
+  const INTEREST = [
+    {code:'MCS', label:'Costa Sul',          coastal:false},
+    {code:'MRM', label:'R. Montanhosas',     coastal:false},
+    {code:'MCS', label:'Agit. Mar. Sul',     coastal:true},
+  ];
+  const LVL_ORDER={red:4,orange:3,yellow:2,green:1};
+  const BG={red:'#e53935',orange:'#ff8c00',yellow:'#fdd835',green:'#4caf50'};
+  const COASTAL_TYPE='Agitação Marítima';
+
+  // Find active warnings right now for each interest
+  let rows = [];
+  INTEREST.forEach(({code,label,coastal})=>{
+    // Find all active warnings at this moment
+    const active = data.filter(w=>{
+      if(w.idAreaAviso!==code) return false;
+      const isCoastal=(w.awarenessTypeName===COASTAL_TYPE);
+      if(coastal && !isCoastal) return false;
+      if(!coastal && isCoastal) return false;
+      const s=new Date(w.startTime), e=new Date(w.endTime);
+      return now>=s && now<e;
+    });
+
+    if(!active.length) return; // nothing active now
+
+    // Group by phenomenon type, find max level per type
+    const byType={};
+    active.forEach(w=>{
+      const t=w.awarenessTypeName;
+      const lv=(w.awarenessLevelID||'green').toLowerCase();
+      if(!byType[t]||((LVL_ORDER[lv]||0)>(LVL_ORDER[byType[t].lv]||0))){
+        byType[t]={lv,start:w.startTime,end:w.endTime};
+      }
+    });
+
+    Object.entries(byType).forEach(([type,{lv,start,end}])=>{
+      if(lv==='green') return; // skip green
+      rows.push({label, type, lv, start, end});
+    });
+  });
+
+  if(!rows.length){
+    return `<div class="active-warnings">
+      <div class="active-warnings-title">Avisos em vigor</div>
+      <div class="no-active-warn">Sem avisos activos neste momento</div>
+    </div>`;
+  }
+
+  const rowsHtml = rows.map(({label,type,lv,start,end})=>{
+    const bg=BG[lv]||'#ccc';
+    const icon=ICONS[type]||'';
+    const textColor=(lv==='red'||lv==='orange')?'#fff':'#000';
+    return `<div class="active-warn-row">
+      <div class="active-warn-icon" style="background:${bg}">
+        <svg width="11" height="11" viewBox="0 0 300 300" style="fill:${textColor}">${icon.replace(/<svg[^>]*>/,'').replace('</svg>','')}</svg>
+      </div>
+      <div>
+        <div class="active-warn-region">${label} — ${type}</div>
+        <div class="active-warn-text">${formatDT(start)} até ${formatDT(end)}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="active-warnings">
+    <div class="active-warnings-title">Avisos em vigor</div>
+    ${rowsHtml}
+  </div>`;
+}
+
 /* ──────────────── Load & render ──────────────── */
 async function load(){
   const content=document.getElementById('content');
@@ -480,7 +614,8 @@ async function load(){
       buildHeaderWidget()+
       Object.entries(REGIONS).map(([code,name])=>buildRegionWidget(code,name,rd[code])).join('')+
       '<div class="fonte">Fonte: IPMA</div>'+
-      buildMapWidget();
+      buildMapWidget()+
+      buildActiveWarnings(data);
 
     /* Colour the map now that SVG is in DOM */
     paintMap('reg-AM-N', COLORS_M[lvAMN!=='none'?lvAMN:'green']);
